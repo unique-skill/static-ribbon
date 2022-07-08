@@ -39,4 +39,34 @@ const strTimeToDate = (time: string) => {
   date.setFullYear(parseInt(year))
   return date
 }
-export {pastTimeToDate, strTimeToDate}
+const formatDisplayTime = (time: number) => {
+  let seconds = ~~time
+  let minutes = 0
+  let hours = 0
+
+  while (seconds >= 3600) {
+    seconds -= 3600
+    hours += 1
+  }
+
+  while (seconds >= 60) {
+    seconds -= 60
+    minutes += 1
+  }
+
+  if (hours) return `${hours}h ${minutes}m ${seconds}s`
+  if (minutes) return `${minutes}m ${seconds}s`
+
+  return `${seconds}s`
+}
+
+const estimateTime = ({
+  since,
+  current,
+  total
+}: {
+  since: number
+  current: number
+  total: number
+}) => (((performance.now() - since) / current) * (total - current)) / 1000
+export {pastTimeToDate, strTimeToDate, estimateTime, formatDisplayTime}

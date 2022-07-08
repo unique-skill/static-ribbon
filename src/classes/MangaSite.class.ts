@@ -4,6 +4,7 @@ import MangaSiteIndex from '../interfaces/MangaSiteIndex'
 import MangaSiteMeta from '../interfaces/MangaSiteMeta.interface'
 import RequestService from '../services/request.service'
 import { writeFile, appendFile } from 'fs/promises'
+import PQueue from 'p-queue'
 class ManageSite {
   request: RequestService
   siteId = 0
@@ -13,7 +14,9 @@ class ManageSite {
     totalPages: 0,
     index: []
   }
+  queue: PQueue
   constructor(public userAgent: string) {
+    this.queue = new PQueue({ concurrency: 6 });
     this.request = new RequestService({
       baseURL: 'https://yue.sh/',
       headers: {

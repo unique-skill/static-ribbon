@@ -5,7 +5,7 @@ import NiceOppaiSite from './sites/niceoppai.net.site'
 import MangaSugoiSite from './sites/manga-sugoi.com.site'
 async function run(): Promise<void> {
   try {
-    const sites = [new MangaThaiSite(randomUseragent.getRandom()), new NiceOppaiSite(randomUseragent.getRandom()), new MangaSugoiSite(randomUseragent.getRandom())]
+    const sites = [new NiceOppaiSite(randomUseragent.getRandom()), new MangaSugoiSite(randomUseragent.getRandom()), new MangaThaiSite(randomUseragent.getRandom())]
     const currentWorker = +(process.env?.WORKER_INDEX ?? 1)
     const totalWorker = +(process.env?.WORKER_COUNT ?? 1)
 

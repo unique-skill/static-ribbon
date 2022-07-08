@@ -1,7 +1,6 @@
 import ManageSite from "../classes/MangaSite.class"
 import MangaSiteMeta from "../interfaces/MangaSiteMeta.interface"
 import RequestService from "../services/request.service"
-import * as core from '@actions/core'
 const currentWorker = +(process.env?.WORKER_INDEX ?? 1)
 const totalWorker = +(process.env?.WORKER_COUNT ?? 1)
 import { mkdirSync, existsSync, writeFileSync, appendFileSync } from 'fs'
@@ -9,7 +8,7 @@ import { writeFile, appendFile } from 'fs/promises'
 import PQueue from 'p-queue'
 import { CheerioAPI } from "cheerio"
 import MangaMeta from "../interfaces/MangaMeta.interface"
-import { strTimeToDate } from "../services/time.service"
+import { estimateTime, formatDisplayTime, strTimeToDate } from "../services/time.service"
 import ChapterMeta from "../interfaces/ChapterMeta.interface"
 import ChapterPageMeta from "../interfaces/ChapterPageMeta.interface"
 import MangaSiteIndex from "../interfaces/MangaSiteIndex"
@@ -24,13 +23,18 @@ class NiceOppaiSite implements ManageSite {
         timeout: 180000
     })
     siteId = 2
+    totalMangas: number = 0
     meta: MangaSiteMeta = {
         siteId: this.siteId,
         name: 'Nice Oppai',
         totalPages: 0,
         index: []
     }
-    constructor(public userAgent: string) { }
+    progressTimer: NodeJS.Timeout | undefined
+    queue: PQueue
+    constructor(public userAgent: string) {
+        this.queue = new PQueue({ concurrency: 6 });
+    }
     makeFolder() {
         //If data/ is not exist, create it
         if (!existsSync('data')) {
@@ -42,16 +46,16 @@ class NiceOppaiSite implements ManageSite {
         }
     }
     async run() {
-        core.info(`Start to run ${this.meta.name}`)
+        console.log(`[${this.meta.name}] Start to run [${this.meta.name}]`)
         await this.updateTotalPages()
-        core.info(`Total pages: ${this.meta.totalPages}`)
+        console.log(`[${this.meta.name}] Total pages: ${this.meta.totalPages}`)
         await this.fetchMangas()
         await this.writeIndexToFile()
     }
     async fetchMangas() {
+        const since = performance.now()
         this.makeFolder()
-        const queue = new PQueue({ concurrency: 6 })
-        core.info('Start fetch manga list...')
+        console.log(`[${this.meta.name}] Start fetch manga list...`)
         let startPage = 1
         let endPage = this.meta.totalPages
         if (totalWorker > 1) {
@@ -60,7 +64,7 @@ class NiceOppaiSite implements ManageSite {
             endPage = (currentWorker + 1) * totalPagesPerWorker
             if (endPage > this.meta.totalPages) endPage = this.meta.totalPages
         }
-        core.info(
+        console.log(
             `Worker ${currentWorker} start from page ${startPage} to ${endPage}`
         )
         for (let currentPage = startPage; currentPage <= endPage; currentPage++) {
@@ -68,12 +72,13 @@ class NiceOppaiSite implements ManageSite {
                 `/manga_list/all/any/name-az/${currentPage}`
             )) as CheerioAPI
             const mangas = page('div.nde')
-            core.info(`Page ${currentPage} (${startPage}-${endPage}/${this.meta.totalPages})`)
-            core.info(`Queue ${queue.pending} pending ${queue.size} total`)
+            console.log(`[${this.meta.name}] Page ${currentPage} (${startPage}-${endPage}/${this.meta.totalPages})`)
+            console.log(`[${this.meta.name}] Queue ${this.queue.pending} pending ${this.queue.size} total`)
             for (const manga of mangas) {
                 const url = page(manga).find('a').last().attr('href')
                 const mangaId = url?.split('/')[3] || '#'
-                queue.add(async () => {
+                this.totalMangas++
+                this.queue.add(async () => {
                     try {
                         const manga = await this.getMangaMeta(mangaId, true, true)
                         //Write it to file
@@ -82,15 +87,28 @@ class NiceOppaiSite implements ManageSite {
                             JSON.stringify(manga)
                         )
                         this.addIndex(manga)
-                        core.info(`Loaded ${this.meta.index.length} mangas`)
                     } catch (e) {
-                        core.info(`Error while fetch manga: ${e}`)
+                        console.log(`[${this.meta.name}] Error while fetch manga: ${e}`)
                     }
                 })
             }
         }
-        await queue.onIdle()
-        core.info(`Finsihed loaded ${this.meta.index.length} mangas`)
+        this.progressTimer = setInterval(async () => {
+            console.log(
+                `[${this.meta.name}] (${((this.meta.index.length / (this.totalMangas)) * 100).toFixed(
+                    4
+                )}%) | ${this.meta.index.length}/${this.totalMangas} | Estimate time left: ${formatDisplayTime(
+                    estimateTime({
+                        current: this.meta.index.length,
+                        total: this.totalMangas,
+                        since
+                    })
+                )}`
+            )
+        }, 10000)
+        await this.queue.onIdle()
+        clearInterval(this.progressTimer)
+        console.log(`[${this.meta.name}] Finsihed loaded ${this.meta.index.length} mangas`)
     }
 
     async getMangaMeta(
@@ -116,11 +134,13 @@ class NiceOppaiSite implements ManageSite {
                 const chapters = fetchChapters
                     ? await this.getChapterList(mangaId, fetchPage)
                     : []
+                //Find newest chapter and get date
+                const lastUpdated = chapters.length > 0 ? chapters.map(c => c.lastUpdated).sort((a, b) => b.getTime() - a.getTime())[0] : new Date(0);
                 const mangaMeta: MangaMeta = {
                     siteId: this.siteId,
                     mangaId,
                     created: created,
-                    lastUpdated: created,
+                    lastUpdated: lastUpdated,
                     title: title || '-',
                     otherTitles,
                     status,
@@ -135,10 +155,9 @@ class NiceOppaiSite implements ManageSite {
                     tags,
                     publisher
                 }
-                core.info(`Start load ${mangaMeta.title}`)
                 resolve(mangaMeta)
             } catch (e) {
-                core.info(`Error update manga meta: ${e}`)
+                console.log(`[${this.meta.name}] Error update manga meta: ${e}`)
                 reject(e)
             }
         })
@@ -148,7 +167,7 @@ class NiceOppaiSite implements ManageSite {
         await writeFile(
             `data/${this.siteId}/${currentWorker}-index.json`,
             JSON.stringify(this.meta.index)
-          )
+        )
     }
     addIndex(manga: MangaMeta) {
         const index: MangaSiteIndex = {
@@ -168,7 +187,7 @@ class NiceOppaiSite implements ManageSite {
     async updateTotalPages() {
         const homePage = (await this.request.get('/manga_list/all/any/name-az/1')) as CheerioAPI
         const totalPages = homePage('ul.pgg').find('li').last().children().first().attr('href')?.split('/')[7] || '1';
-        core.info(
+        console.log(
             `Total pages: ${totalPages}`
         )
         this.meta.totalPages = parseInt(
@@ -211,7 +230,7 @@ class NiceOppaiSite implements ManageSite {
                 resolve(chapters)
             } catch (e) {
                 console.log(e)
-                core.info(`Error loading chapter list: ${e}`)
+                console.log(`[${this.meta.name}] Error loading chapter list: ${e}`)
                 reject(e)
             }
         })
@@ -242,7 +261,7 @@ class NiceOppaiSite implements ManageSite {
                 resolve(pages)
             } catch (e) {
                 console.log(e)
-                core.info(`Error loading chapter page: ${e}`)
+                console.log(`[${this.meta.name}] Error loading chapter page: ${e}`)
                 reject(e)
             }
         })

@@ -10,10 +10,15 @@ async function run(): Promise<void> {
     const totalWorker = +(process.env?.WORKER_COUNT ?? 1)
 
     core.info(`Worker ${currentWorker}/${totalWorker}`)
-    // for (const site of sites) {
-      // await site.run()
-    // }
-    await sites[1].run();
+    for (const site of sites) {
+      try{
+        await site.run()
+      }catch(e){
+        if(e instanceof Error){
+          core.info(`Worker ${currentWorker}/${totalWorker} ${site.meta.name} error: ${e.message}`)
+        }
+      }
+    }
   } catch (error) {
     console.log(error)
     if (error instanceof Error) core.setFailed(error.message)

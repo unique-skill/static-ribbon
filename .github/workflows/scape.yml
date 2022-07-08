@@ -1,0 +1,70 @@
+#some from https://github.com/saltyaom-engine/hifumin-mirror/blob/main/.github/workflows/mirror.yml thx u <3
+
+name: scape
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    #Run every day at 12:00 AM
+    - cron: "0 0 * * *"
+
+jobs:
+  scape:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Free plan limit to 20 concurrent job
+        ci_node_total: [20]
+        ci_node_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - uses: pnpm/action-setup@v2.2.2
+        with:
+          version: 7.5.0
+          run_install: |
+            - recursive: true
+              args: [--frozen-lockfile, --strict-peer-dependencies]
+      - run: pnpm build
+
+      - name: Scape sites
+        uses: mujo-code/puppeteer-headful@v2
+        env:
+          WORKER_COUNT: ${{ matrix.ci_node_total }}
+          WORKER_INDEX: ${{ matrix.ci_node_index }}
+        with:
+          args: node lib/main.js
+
+      - name: Zip artifact
+        run: zip -r data-${{ matrix.ci_node_index }}.zip data
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: artifact-${{ matrix.ci_node_index }}
+          path: data-${{ matrix.ci_node_index }}.zip
+
+  push:
+    needs: [scape]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+
+      - name: unzip artifact
+        run: find . -name '*.zip' -exec sh -c 'unzip -d `dirname {}` {}' ';'
+
+      - run: mkdir data
+      - run: find . -name 'data-*' -exec mv -nt data {} +
+  
+      - name: Push
+        uses: s0/git-publish-subdir-action@develop
+        env:
+          REPO: self
+          BRANCH: generated
+          FOLDER: data
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MESSAGE: "scaped"

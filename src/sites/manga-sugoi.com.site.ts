@@ -10,6 +10,7 @@ import ChapterPageMeta from '../interfaces/ChapterPageMeta.interface'
 import { mkdirSync, existsSync, writeFileSync, appendFileSync } from 'fs'
 import { writeFile, appendFile } from 'fs/promises'
 import PQueue from 'p-queue'
+import MangaSiteIndex from '../interfaces/MangaSiteIndex'
 const currentWorker = +(process.env?.WORKER_INDEX ?? 1)
 const totalWorker = +(process.env?.WORKER_COUNT ?? 1)
 class MangaSugoiSite implements ManageSite {
@@ -25,15 +26,16 @@ class MangaSugoiSite implements ManageSite {
   meta: MangaSiteMeta = {
     siteId: this.siteId,
     name: 'MangaSugoi',
-    totalPages: 0
+    totalPages: 0,
+    index: []
   }
-  totalLoaded = 0
   constructor(public userAgent: string) { }
   async run() {
     core.info(`Start to run ${this.meta.name}`)
     await this.updateTotalPages()
     core.info(`Total pages: ${this.meta.totalPages}`)
     await this.fetchMangas()
+    await this.writeIndexToFile()
   }
   makeFolder() {
     //If data/ is not exist, create it
@@ -64,10 +66,12 @@ class MangaSugoiSite implements ManageSite {
       const page = (await this.request.get(
         `/page/${currentPage}`
       )) as CheerioAPI
-      const mangas = page('div.aniframe')
+      const mangas = page('div.flexbox4').find('div.flexbox4-content')
+      core.info(`Page ${currentPage} (${startPage}-${endPage}/${this.meta.totalPages})`)
+      core.info(`Queue ${queue.pending} pending ${queue.size} total`)
       for (const manga of mangas) {
-        const url = page(manga).find('a').last().attr('href')
-        const mangaId = url?.split('/')[3] || '#'
+        const url = page(manga).children().first().attr('href')
+        const mangaId = url?.split('/')[4] || '#'
         queue.add(async () => {
           try {
             const manga = await this.getMangaMeta(mangaId, true, true)
@@ -76,7 +80,8 @@ class MangaSugoiSite implements ManageSite {
               `data/${this.siteId}/${mangaId}.json`,
               JSON.stringify(manga)
             )
-            core.info(`Loaded ${++this.totalLoaded} mangas`)
+            this.addIndex(manga)
+            core.info(`Start load ${this.meta.index.length} mangas`)
           } catch (e) {
             core.info(`Error while fetch manga: ${e}`)
           }
@@ -84,7 +89,29 @@ class MangaSugoiSite implements ManageSite {
       }
     }
     await queue.onIdle()
-    core.info(`Finsihed loaded ${this.totalLoaded} mangas`)
+    core.info(`Finsihed loaded ${this.meta.index.length} mangas`)
+  }
+  async writeIndexToFile() {
+    //Write index to file
+    await writeFile(
+      `data/${this.siteId}/index.json`,
+      JSON.stringify(this.meta.index)
+    )
+  }
+  addIndex(manga: MangaMeta) {
+    const index: MangaSiteIndex = {
+      mangaId: manga.mangaId,
+      title: manga.title,
+      otherTitles: manga.otherTitles,
+      tags: manga.tags,
+      thumbnail: manga.thumbnail,
+      year: manga.year,
+      lastUpdated: manga.lastUpdated,
+      status: manga.status,
+      totalChapters: manga.chapters.length,
+      totalPages: manga.chapters.map(c => c.pages.length).reduce((a, b) => a + b, 0),
+    }
+    this.meta.index.push(index)
   }
   async updateTotalPages() {
     const homePage = (await this.request.get('/page/1')) as CheerioAPI
@@ -108,48 +135,40 @@ class MangaSugoiSite implements ManageSite {
   ): Promise<MangaMeta> {
     return new Promise<MangaMeta>(async (resolve, reject) => {
       try {
-        const page = (await this.request.get(`/${mangaId}`)) as CheerioAPI
-        const panelBody = page('div.panel-body>div.row')
-        const aniframe = page(panelBody).find('div.aniframe')
-        const topInfomationBody = panelBody.find(
-          'div.col-lg-9.col-sm-8.col-xs-12'
-        )
-        const infomationBody = topInfomationBody.find('p')
-        const rawOtherTitles = infomationBody.first().text().split(' :  ')[1]
-        const otherTitles =
-          rawOtherTitles == '-' || rawOtherTitles == ' '
-            ? []
-            : rawOtherTitles.split(',')
-        const status = infomationBody.find('.label-info').text()
-        const year = infomationBody.find('.label-primary').text()
+        const page = (await this.request.get(`/series/${mangaId}`)) as CheerioAPI
+        const panelBody = page('div.series-flex')
+        const aniframe = page(panelBody).find('div.series-flexleft')
+        const topInfomationBody = panelBody.find('div.series-flexright')
+        const status = aniframe.find('div.status').text()
         const chapters = fetchChapters
           ? await this.getChapterList(mangaId, fetchPage)
           : []
+        const tags = [];
+        for (const tag of topInfomationBody.find('div.series-genres').find('a')) {
+          tags.push(page(tag).text())
+        }
+        const description = topInfomationBody.find('div.series-synops').text()
         const mangaMeta: MangaMeta = {
           siteId: this.siteId,
           mangaId,
-          created: pastTimeToDate(
-            aniframe.find('.label-ago').first().text()
-          ),
-          lastUpdated: pastTimeToDate(
-            aniframe.find('.label-ago').first().text()
-          ),
-          title: page('#thisPostname').text() || '-',
-          otherTitles,
+          created: new Date(),
+          lastUpdated: new Date(),
+          title: topInfomationBody.find('.series-title').children().first().text() || '-',
+          otherTitles: [],
           status,
           description:
-            topInfomationBody.find('.text-warning').text() ||
+            description ||
             '-',
-          year: parseInt(year, 10) || 0,
+          year: 0,
           thumbnail:
             aniframe.find('img').attr('src') || '-',
           chapters,
           writer: '-',
           artist: '-',
-          tags: [],
+          tags,
           publisher: '-',
         }
-        core.info(`${this.totalLoaded} Loaded ${mangaMeta.title}`)
+        core.info(`Start load ${mangaMeta.title}`)
         resolve(mangaMeta)
       } catch (e) {
         core.info(`Error update manga meta: ${e}`)
@@ -165,11 +184,15 @@ class MangaSugoiSite implements ManageSite {
       const chapters = []
       try {
         const page = (await this.request.get(`/${mangaId}`)) as CheerioAPI
-        const chapterList = page('tbody').children()
+        const chapterList = page('ul.series-chapterlist').children().find('div.flexch-infoz')
         for (const chapter of chapterList) {
-          const name = page(chapter).find('a')
-          const updated = name.parent().next().html() || '0 วัน ที่แล้ว'
-          const chapterId = name.attr('href')?.split('/')[4] || '0'
+          const atag = page(chapter).find('a')
+          const updated = atag.children().last().text()
+          const name = atag.children().first().text()
+          const chapterId = atag.attr('href')?.split('/')[3] || '0'
+          let nameSplit = name.split(' ');
+          let chapterCount = nameSplit[nameSplit.length - 1];
+          if (!chapterCount) chapterCount = nameSplit[nameSplit.length - 2];
           const pages = fetchPage
             ? await this.getChapterPages(mangaId, chapterId)
             : []
@@ -177,10 +200,8 @@ class MangaSugoiSite implements ManageSite {
             siteId: this.siteId,
             mangaId,
             chapterId,
-            name: name.html() || '-',
-            chapterCount: parseInt(
-              name.attr('href')?.split('/')[4]?.split('-')[1] || '-1'
-            ),
+            name: name || '-',
+            chapterCount: parseInt(chapterCount || '-1', 10),
             lastUpdated: pastTimeToDate(updated),
             pages
           }
@@ -202,16 +223,20 @@ class MangaSugoiSite implements ManageSite {
       const pages = []
       try {
         const page = (await this.request.get(
-          `/${mangaId}/${chapterId}`
+          `/${chapterId}`
         )) as CheerioAPI
-        const chapterPage = page('div.display_content').find('img')
+        const chapterPage = page('div.reader-area').find('img')
         for (const page of chapterPage) {
           const att = page.attribs
+          let pageId = '0';
+          try {
+            pageId = att['alt'].split(" ")[att['alt'].split(" ").length - 1].replace('(', '').replace(')', '');
+          } catch (e) { }
           const chapterPageMeta: ChapterPageMeta = {
             siteId: this.siteId,
             mangaId,
             chapterId,
-            pageId: att['id'] || '0',
+            pageId,
             name: att['alt'] || '',
             url: att['src']?.replace('\n', '') || ''
           }

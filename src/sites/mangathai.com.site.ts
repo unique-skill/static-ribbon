@@ -10,6 +10,7 @@ import ChapterPageMeta from '../interfaces/ChapterPageMeta.interface'
 import { mkdirSync, existsSync, writeFileSync, appendFileSync } from 'fs'
 import { writeFile, appendFile } from 'fs/promises'
 import PQueue from 'p-queue'
+import MangaSiteIndex from '../interfaces/MangaSiteIndex'
 const currentWorker = +(process.env?.WORKER_INDEX ?? 1)
 const totalWorker = +(process.env?.WORKER_COUNT ?? 1)
 class MangaThaiSite implements ManageSite {
@@ -26,15 +27,16 @@ class MangaThaiSite implements ManageSite {
   meta: MangaSiteMeta = {
     siteId: this.siteId,
     name: 'MangaThai',
-    totalPages: 0
+    totalPages: 0,
+    index: []
   }
-  totalLoaded = 0
   constructor(public userAgent: string) { }
   async run() {
     core.info(`Start to run ${this.meta.name}`)
     await this.updateTotalPages()
     core.info(`Total pages: ${this.meta.totalPages}`)
     await this.fetchMangas()
+    await this.writeIndexToFile()
   }
   makeFolder() {
     //If data/ is not exist, create it
@@ -66,6 +68,8 @@ class MangaThaiSite implements ManageSite {
         `/page/${currentPage}`
       )) as CheerioAPI
       const mangas = page('div.aniframe')
+      core.info(`Page ${currentPage} (${startPage}-${endPage}/${this.meta.totalPages})`)
+      core.info(`Queue ${queue.pending} pending ${queue.size} total`)
       for (const manga of mangas) {
         const url = page(manga).find('a').last().attr('href')
         const mangaId = url?.split('/')[3] || '#'
@@ -89,7 +93,8 @@ class MangaThaiSite implements ManageSite {
               `data/${this.siteId}/${mangaId}.json`,
               JSON.stringify(manga)
             )
-            core.info(`Loaded ${++this.totalLoaded} mangas`)
+            this.addIndex(manga)
+            core.info(`Loaded ${this.meta.index.length} mangas`)
           } catch (e) {
             core.info(`Error while fetch manga: ${e}`)
           }
@@ -97,7 +102,29 @@ class MangaThaiSite implements ManageSite {
       }
     }
     await queue.onIdle()
-    core.info(`Finsihed loaded ${this.totalLoaded} mangas`)
+    core.info(`Finsihed loaded ${this.meta.index.length} mangas`)
+  }
+  async writeIndexToFile() {
+    //Write index to file
+    await writeFile(
+      `data/${this.siteId}/index.json`,
+      JSON.stringify(this.meta.index)
+    )
+  }
+  addIndex(manga: MangaMeta) {
+    const index: MangaSiteIndex = {
+      mangaId: manga.mangaId,
+      title: manga.title,
+      otherTitles: manga.otherTitles,
+      tags: manga.tags,
+      thumbnail: manga.thumbnail,
+      year: manga.year,
+      lastUpdated: manga.lastUpdated,
+      status: manga.status,
+      totalChapters: manga.chapters.length,
+      totalPages: manga.chapters.map(c => c.pages.length).reduce((a, b) => a + b, 0),
+    }
+    this.meta.index.push(index)
   }
   async updateTotalPages() {
     const homePage = (await this.request.get('/page/1')) as CheerioAPI
@@ -162,7 +189,7 @@ class MangaThaiSite implements ManageSite {
           tags: [],
           publisher: '-',
         }
-        core.info(`${this.totalLoaded} Loaded ${mangaMeta.title}`)
+        core.info(`Start load ${mangaMeta.title}`)
         resolve(mangaMeta)
       } catch (e) {
         core.info(`Error update manga meta: ${e}`)

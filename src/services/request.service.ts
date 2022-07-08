@@ -88,13 +88,16 @@ class RequestService {
           'ECONNRESET',
           'ENOBUFS'
         ]
-        if (e instanceof AxiosError && errorList.includes(e.code || '')) {
-          if (retryCount < this.retry) {
-            console.log(
-              `[${retryCount}] get ${e.code} ${e.response?.status} error retrying: ${e.config.url}`
-            )
-            await this.wait(5000);
-            resolve(this.get(url, config, retryCount + 1))
+        if(e instanceof AxiosError){
+          if(e.response && e.response.data) resolve(this.parseResult(e.response))
+          if (errorList.includes(e.code || '')) {
+            if (retryCount < this.retry) {
+              console.log(
+                `[${retryCount}] get ${e.code} ${e.response?.status} error retrying: ${e.config.url}`
+              )
+              await this.wait(5000);
+              resolve(this.get(url, config, retryCount + 1))
+            }
           }
         }
         reject(e)

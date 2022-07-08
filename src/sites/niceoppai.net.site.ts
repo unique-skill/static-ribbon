@@ -12,6 +12,7 @@ import MangaMeta from "../interfaces/MangaMeta.interface"
 import { strTimeToDate } from "../services/time.service"
 import ChapterMeta from "../interfaces/ChapterMeta.interface"
 import ChapterPageMeta from "../interfaces/ChapterPageMeta.interface"
+import MangaSiteIndex from "../interfaces/MangaSiteIndex"
 class NiceOppaiSite implements ManageSite {
     request: RequestService = new RequestService({
         baseURL: 'https://www.niceoppai.net',
@@ -26,9 +27,9 @@ class NiceOppaiSite implements ManageSite {
     meta: MangaSiteMeta = {
         siteId: this.siteId,
         name: 'Nice Oppai',
-        totalPages: 0
+        totalPages: 0,
+        index: []
     }
-    totalLoaded = 0
     constructor(public userAgent: string) { }
     makeFolder() {
         //If data/ is not exist, create it
@@ -45,6 +46,7 @@ class NiceOppaiSite implements ManageSite {
         await this.updateTotalPages()
         core.info(`Total pages: ${this.meta.totalPages}`)
         await this.fetchMangas()
+        await this.writeIndexToFile()
     }
     async fetchMangas() {
         this.makeFolder()
@@ -66,6 +68,8 @@ class NiceOppaiSite implements ManageSite {
                 `/manga_list/all/any/name-az/${currentPage}`
             )) as CheerioAPI
             const mangas = page('div.nde')
+            core.info(`Page ${currentPage} (${startPage}-${endPage}/${this.meta.totalPages})`)
+            core.info(`Queue ${queue.pending} pending ${queue.size} total`)
             for (const manga of mangas) {
                 const url = page(manga).find('a').last().attr('href')
                 const mangaId = url?.split('/')[3] || '#'
@@ -77,7 +81,8 @@ class NiceOppaiSite implements ManageSite {
                             `data/${this.siteId}/${mangaId}.json`,
                             JSON.stringify(manga)
                         )
-                        core.info(`Loaded ${++this.totalLoaded} mangas`)
+                        this.addIndex(manga)
+                        core.info(`Loaded ${this.meta.index.length} mangas`)
                     } catch (e) {
                         core.info(`Error while fetch manga: ${e}`)
                     }
@@ -85,7 +90,7 @@ class NiceOppaiSite implements ManageSite {
             }
         }
         await queue.onIdle()
-        core.info(`Finsihed loaded ${this.totalLoaded} mangas`)
+        core.info(`Finsihed loaded ${this.meta.index.length} mangas`)
     }
 
     async getMangaMeta(
@@ -130,13 +135,35 @@ class NiceOppaiSite implements ManageSite {
                     tags,
                     publisher
                 }
-                core.info(`${this.totalLoaded} Loaded ${mangaMeta.title}`)
+                core.info(`Start load ${mangaMeta.title}`)
                 resolve(mangaMeta)
             } catch (e) {
                 core.info(`Error update manga meta: ${e}`)
                 reject(e)
             }
         })
+    }
+    async writeIndexToFile() {
+        //Write index to file
+        await writeFile(
+            `data/${this.siteId}/index.json`,
+            JSON.stringify(this.meta.index)
+        )
+    }
+    addIndex(manga: MangaMeta) {
+        const index: MangaSiteIndex = {
+            mangaId: manga.mangaId,
+            title: manga.title,
+            otherTitles: manga.otherTitles,
+            tags: manga.tags,
+            thumbnail: manga.thumbnail,
+            year: manga.year,
+            lastUpdated: manga.lastUpdated,
+            status: manga.status,
+            totalChapters: manga.chapters.length,
+            totalPages: manga.chapters.map(c => c.pages.length).reduce((a, b) => a + b, 0),
+        }
+        this.meta.index.push(index)
     }
     async updateTotalPages() {
         const homePage = (await this.request.get('/manga_list/all/any/name-az/1')) as CheerioAPI
@@ -161,7 +188,7 @@ class NiceOppaiSite implements ManageSite {
                 const chapterList = page('ul.lst').find('li.lng_')
                 for (const chapterElement of chapterList) {
                     const text = page(chapterElement).text();
-                    if(text.includes('Nothing yet')) resolve(chapters)
+                    if (text.includes('Nothing yet')) resolve(chapters)
                     const chapter = page(chapterElement).find('a.lst');
                     const updated = chapter.find('b.dte').text()
                     const fullName = chapter.find('b.val').text();

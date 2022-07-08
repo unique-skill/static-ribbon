@@ -107,7 +107,7 @@ class MangaThaiSite implements ManageSite {
   async writeIndexToFile() {
     //Write index to file
     await writeFile(
-      `data/${this.siteId}/index.json`,
+      `data/${this.siteId}/${currentWorker}-index.json`,
       JSON.stringify(this.meta.index)
     )
   }

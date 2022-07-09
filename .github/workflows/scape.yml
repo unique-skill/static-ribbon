@@ -55,11 +55,8 @@ jobs:
         uses: actions/download-artifact@v2
 
       - name: unzip artifact
-        run: find . -name '*.zip' -exec sh -c 'unzip -d `dirname {}` {}' ';'
+        run: find . -name '*.zip' -exec sh -c 'unzip -od `dirname {}` {}' ';'
 
-      - run: mkdir data
-      - run: find . -name 'data-*' -exec mv -nt data {} +
-  
       - name: Push
         uses: s0/git-publish-subdir-action@develop
         env:

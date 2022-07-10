@@ -54,6 +54,7 @@ class NiceOppaiSite implements ManageSite {
     }
     async fetchMangas() {
         const since = performance.now()
+        const startTime = new Date()
         this.makeFolder()
         console.log(`[${this.meta.name}] Start fetch manga list...`)
         let startPage = 1
@@ -97,7 +98,7 @@ class NiceOppaiSite implements ManageSite {
             console.log(
                 `[${this.meta.name}] (${((this.meta.index.length / (this.totalMangas)) * 100).toFixed(
                     4
-                )}%) | ${this.meta.index.length}/${this.totalMangas} | Estimate time left: ${formatDisplayTime(
+                )}%) | ${this.meta.index.length}/${this.totalMangas} | ${formatDisplayTime((new Date().getTime() - startTime.getTime())/1000)}/${formatDisplayTime(
                     estimateTime({
                         current: this.meta.index.length,
                         total: this.totalMangas,

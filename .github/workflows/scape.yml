@@ -58,8 +58,8 @@ jobs:
       - name: unzip artifact
         #File will extracted to ./artifact-0/data/*, ./artifact-1/data/*, ./artifact-2/data/*, ./artifact-3/data/*, ./artifact-4/data/* etc.
         run: find . -name '*.zip' -exec sh -c 'unzip -od `dirname {}` {}' ';'
-        #Move it to ./data/
-      - run: mv --force ./artifact-*/data/* ./data/
+        #Move it to ./data/ if Directory is not empty merge it  ./artifact-*/data/* ./data/
+      - run: rsync -a ./artifact-*/data/* ./data/
       - name: Push
         uses: s0/git-publish-subdir-action@develop
         env:

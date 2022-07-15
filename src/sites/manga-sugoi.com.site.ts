@@ -97,7 +97,7 @@ class MangaSugoiSite implements ManageSite {
       console.log(
         `[${this.meta.name}] (${((this.meta.index.length / (this.totalMangas)) * 100).toFixed(
           4
-        )}%) | ${this.meta.index.length}/${this.totalMangas} | ${formatDisplayTime((new Date().getTime() - startTime.getTime())/1000)}/${formatDisplayTime(
+        )}%) | ${this.meta.index.length}/${this.totalMangas} | ${formatDisplayTime((new Date().getTime() - startTime.getTime()) / 1000)}/${formatDisplayTime(
           estimateTime({
             current: this.meta.index.length,
             total: this.totalMangas,
@@ -158,36 +158,70 @@ class MangaSugoiSite implements ManageSite {
         const panelBody = page('div.series-flex')
         const aniframe = page(panelBody).find('div.series-flexleft')
         const topInfomationBody = panelBody.find('div.series-flexright')
-        const status = aniframe.find('div.status').text()
+        const status = aniframe.find('span.status').text()?.toUpperCase();
+        let year = "1980";
+        let author: string[] = [];
+        let artist: string[] = [];
+        let otherTitles: string[] = [];
+        for (const info of aniframe.find('ul.series-infolist').find('li')) {
+          const text = page(info).children().first().text();
+          const data = page(info).find('span').first().text();
+          switch (text) {
+            case 'Published':
+              year = data
+              break;
+            case 'Author':
+              author = data?.split(',') || []
+              break;
+            case 'Artist':
+              artist = data?.split(',') || []
+              break;
+            case 'Alternative':
+              otherTitles = data?.split(',') || []
+              break;
+          }
+        }
         const chapters = fetchChapters
           ? await this.getChapterList(mangaId, fetchPage)
           : []
-        const tags = [];
+        let tags = [];
         for (const tag of topInfomationBody.find('div.series-genres').find('a')) {
           tags.push(page(tag).text())
         }
         //Find newest chapter and get date
-        const lastUpdated = chapters.length > 0 ? chapters.map(c => c.lastUpdated).sort((a, b) => b.getTime() - a.getTime())[0] : new Date(0);
-        const description = topInfomationBody.find('div.series-synops').text()
+        const toYear = new Date();
+        toYear.setFullYear(parseInt(year));
+        const lastUpdated = chapters.length > 0 ? chapters.map(c => c.lastUpdated).sort((a, b) => b.getTime() - a.getTime())[0] : toYear;
+
+        let description = topInfomationBody.find('div.series-synops').text()
+        //If have \n from frist and end of description, remove it
+        if (description) {
+          if (description.startsWith('\n')) description = description.substring(1)
+          if (description.endsWith('\n')) description = description.substring(0, description.length - 1)
+        }
+
+        //Filter all "" string
+        artist = artist.filter(a => a != "")
+        author = author.filter(a => a != "")
+        tags = tags.filter(a => a != "")
+
         const mangaMeta: MangaMeta = {
           siteId: this.siteId,
           mangaId,
-          created: new Date(),
-          lastUpdated: lastUpdated,
-          title: topInfomationBody.find('.series-title').children().first().text() || '-',
-          otherTitles: [],
+          created: lastUpdated,
+          lastUpdated,
+          title: topInfomationBody.find('.series-title').children().first().text() || null,
+          otherTitles,
           status,
-          description:
-            description ||
-            '-',
-          year: 0,
+          description,
+          year: parseInt(year) || 1980,
           thumbnail:
-            aniframe.find('img').attr('src') || '-',
+            aniframe.find('img').attr('src') || null,
           chapters,
-          writer: '-',
-          artist: '-',
+          author,
+          artist,
           tags,
-          publisher: '-',
+          publisher: null,
         }
         resolve(mangaMeta)
       } catch (e) {
@@ -220,7 +254,7 @@ class MangaSugoiSite implements ManageSite {
             siteId: this.siteId,
             mangaId,
             chapterId,
-            name: name || '-',
+            name: name || null,
             chapterCount: parseInt(chapterCount || '-1', 10),
             lastUpdated: pastTimeToDate(updated),
             pages

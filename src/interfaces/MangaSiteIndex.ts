@@ -1,9 +1,9 @@
 interface MangaSiteIndex {
   mangaId: string
-  title: string
+  title: string | null
   otherTitles: string[]
   tags: string[]
-  thumbnail: string
+  thumbnail: string | null
   year: number
   lastUpdated: Date
   status: string

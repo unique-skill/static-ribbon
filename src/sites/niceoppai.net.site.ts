@@ -121,38 +121,57 @@ class NiceOppaiSite implements ManageSite {
             try {
                 const page = (await this.request.get(`/${mangaId}`)) as CheerioAPI
                 const panelBody = page('div.mng_ifo')
-                const det = panelBody.find('fiv.det');
-                const created = strTimeToDate(det.eq(11).text());
-                const otherTitles = [det.eq(5).text()];
+                const det = panelBody.find('div.det').find('p')
+                const created = strTimeToDate(det.eq(7).text().split(': ')[1])
+                const otherTitles = [];
                 const title = page('h1.ttl').first().text()
-                const year = det.eq(12).text()
-                const status = det.eq(13).text()
-                const description = det.eq(3).text()
-                const artist = det.eq(6).text()
-                const writer = det.eq(7).text()
-                const tags = det.eq(9).text()?.split(', ') || []
-                const publisher = det.eq(8).text()
+
+                if(det.eq(1).text()?.split(': ')[1] !== '-') otherTitles.push(det.eq(1).text()?.split(': ')[1])
+                const year = det.eq(8).text()?.split(': ')[1]
+                let status = det.eq(9).text()?.split(': ')[1]
+                switch (status) {
+                    case 'ยังไม่จบ':
+                        status = 'ONGOING'
+                        break
+                    case 'จบแล้ว':
+                        status = 'COMPLETED'
+                        break
+                    default:
+                        status = 'UNKNOWN'
+                }
+                const description = det.eq(0).text() != '-' && det.eq(0).text() != '' ? det.eq(0).text() : null
+                const artist = [det.eq(2).text()?.split(': ')[1]]
+                if(artist[0] === '-') artist.pop()
+                const author = [det.eq(3).text()?.split(': ')[1]]
+                if(author[0] === '-') author.pop()
+                const tags = det.eq(5).text()?.split(':\n')[1]?.split(', ') || []
+                const publisher = det.eq(4).text().split(': ')[1] != '-' ? det.eq(4).text().split(': ')[1] : null
+
+                //If have space from frist and end of tags, remove it
+                for(let i = 0; i < tags.length; i++) {
+                    if(tags[i].startsWith(' ')) tags[i] = tags[i].substring(1)
+                    if(tags[i].endsWith(' ')) tags[i] = tags[i].substring(0, tags[i].length - 1)
+                }
+
                 const chapters = fetchChapters
                     ? await this.getChapterList(mangaId, fetchPage)
                     : []
                 //Find newest chapter and get date
-                const lastUpdated = chapters.length > 0 ? chapters.map(c => c.lastUpdated).sort((a, b) => b.getTime() - a.getTime())[0] : new Date(0);
+                const lastUpdated = chapters.length > 0 ? chapters.map(c => c.lastUpdated).sort((a, b) => b.getTime() - a.getTime())[0] : created;
                 const mangaMeta: MangaMeta = {
                     siteId: this.siteId,
                     mangaId,
-                    created: created,
-                    lastUpdated: lastUpdated,
-                    title: title || '-',
+                    created,
+                    lastUpdated,
+                    title,
                     otherTitles,
                     status,
-                    description:
-                        description ||
-                        '-',
-                    year: parseInt(year, 10) || 0,
+                    description,
+                    year: parseInt(year),
                     thumbnail: panelBody.find('img.cvr').attr('src') || '',
                     chapters,
                     artist,
-                    writer,
+                    author,
                     tags,
                     publisher
                 }
@@ -221,7 +240,7 @@ class NiceOppaiSite implements ManageSite {
                         siteId: this.siteId,
                         mangaId,
                         chapterId,
-                        name: fullName || '-',
+                        name: fullName || null,
                         chapterCount: isNaN(parseInt(chapterCount)) ? -1 : parseInt(chapterCount),
                         lastUpdated: strTimeToDate(updated),
                         pages

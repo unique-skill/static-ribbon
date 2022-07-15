@@ -110,7 +110,7 @@ class MangaThaiSite implements ManageSite {
       console.log(
         `[${this.meta.name}] (${((this.meta.index.length / (this.totalMangas)) * 100).toFixed(
           4
-        )}%) | ${this.meta.index.length}/${this.totalMangas} | ${formatDisplayTime((new Date().getTime() - startTime.getTime())/1000)}/${formatDisplayTime(
+        )}%) | ${this.meta.index.length}/${this.totalMangas} | ${formatDisplayTime((new Date().getTime() - startTime.getTime()) / 1000)}/${formatDisplayTime(
           estimateTime({
             current: this.meta.index.length,
             total: this.totalMangas,
@@ -176,7 +176,17 @@ class MangaThaiSite implements ManageSite {
           rawOtherTitles == '-' || rawOtherTitles == ' '
             ? []
             : rawOtherTitles.split(',')
-        const status = infomationBody.find('.label-info').text()
+        let status = infomationBody.find('.label-info').text()
+        switch (status) {
+          case 'ยังไม่จบ':
+              status = 'ONGOING'
+              break
+          case 'จบแล้ว':
+              status = 'COMPLETED'
+              break
+          default:
+              status = 'UNKNOWN'
+      }
         const year = infomationBody.find('.label-primary').text()
         const chapters = fetchChapters
           ? await this.getChapterList(mangaId, fetchPage)
@@ -190,20 +200,20 @@ class MangaThaiSite implements ManageSite {
             aniframe.find('.label-ago').first().text()
           ),
           lastUpdated: lastUpdated,
-          title: page('#thisPostname').text() || '-',
+          title: page('#thisPostname').text() || null,
           otherTitles,
           status,
           description:
             topInfomationBody.find('.text-warning').text() ||
-            '-',
+            null,
           year: parseInt(year, 10) || 0,
           thumbnail:
-            aniframe.find('img').attr('src') || '-',
+            aniframe.find('img').attr('src') || null,
           chapters,
-          writer: '-',
-          artist: '-',
+          author: [],
+          artist: [],
           tags: [],
-          publisher: '-',
+          publisher: null,
         }
         resolve(mangaMeta)
       } catch (e) {
@@ -232,7 +242,7 @@ class MangaThaiSite implements ManageSite {
             siteId: this.siteId,
             mangaId,
             chapterId,
-            name: name.html() || '-',
+            name: name.html() || null,
             chapterCount: parseInt(
               name.attr('href')?.split('/')[4]?.split('-')[1] || '-1'
             ),

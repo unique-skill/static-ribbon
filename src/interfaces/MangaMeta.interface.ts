@@ -5,16 +5,16 @@ interface MangaMeta {
   mangaId: string
   created: Date
   lastUpdated: Date
-  title: string
+  title: string | null
   otherTitles: string[]
   status: string
-  description: string
+  description: string | null
   year: number
-  thumbnail: string
+  thumbnail: string | null
   chapters: ChapterMeta[]
-  writer: string
-  artist: string
+  author: string[]
+  artist: string[]
   tags: string[]
-  publisher: string
+  publisher: string | null
 }
 export default MangaMeta

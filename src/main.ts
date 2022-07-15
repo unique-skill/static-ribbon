@@ -11,7 +11,6 @@ async function run(): Promise<void> {
 
     core.info(`Worker ${currentWorker}/${totalWorker}`);
 
-    await sites[1].run();
     for (const site of sites) {
       try{
         await site.run()
